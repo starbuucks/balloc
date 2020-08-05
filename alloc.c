@@ -25,7 +25,31 @@ pChunk top_chunk;
 pChunk fastbin[NUM_FB];   // 0x20, 0x28, ... , 0x58
 pChunk sortedbin;
 
-void insert(pChunk *root, pChunk c_ptr, size_t size) {
+void insert_fastbin(struct _chunk* c_ptr, size_t size){
+
+    int idx = (size - MIN_FB_SIZE) >> 3;
+
+    c_ptr->fd = fastbin[idx];
+
+    fastbin[idx] = c_ptr;
+
+    return;
+}
+
+pChunk pop_fastbin(size_t size){
+
+    int idx = (size - MIN_FB_SIZE) >> 3;
+    pChunk target;
+
+    if(fastbin[idx]){
+        target = fastbin[idx];
+        fastbin[idx] = target->fd;
+        return target;
+    }
+    else return NULL;
+}
+
+void insert_sortedbin(pChunk *root, pChunk c_ptr, size_t size) {
 
     pChunk ptr = *root;
 
@@ -52,17 +76,17 @@ void insert(pChunk *root, pChunk c_ptr, size_t size) {
     return;
 }   
 
-void* delete(pChunk c_ptr){
+pChunk delete(pChunk c_ptr){
 
     if(c_ptr->bk)   c_ptr->bk->fd = c_ptr->fd;
     if(c_ptr->fd)   c_ptr->fd->bk = c_ptr->bk;
 
-    return (void*)c_ptr;
+    return c_ptr;
 }
 
 void *myalloc(size_t size)
 { 
-    if(!top_chunk) top_chunk = sbrk(2 * sizeof(size_t));
+    if(!top_chunk) top_chunk = (pChunk)sbrk(2 * sizeof(size_t));
 
     size_t c_size;
     pChunk target;
@@ -97,9 +121,9 @@ void *myalloc(size_t size)
         target = (pChunk)delte(ptr);
 
         if(c_size != (target->chunk_size & ~(size_t)0x01)){
-            delete(target);
             pChunk splited = (pChunk)((void*)target + c_size);
-            splited->chunk_size = (target->chunk_size ) | (size_t)0x01;
+            splited->chunk_size = (target->chunk_size - c_size) | (size_t)0x01;
+            _myfree(splited);
         }
         
         target->chunk_size = c_size || PREV_INUSE(target);
@@ -125,40 +149,36 @@ void *myrealloc(void *ptr, size_t size)
 
 }
 
-void _myfree(struct _chunk* c_ptr){
+pChunk coalescing(struct _chunk* c_ptr){
 
-    size_t size = c_ptr->chunk_size;
-
-    if(size <= MAX_FB_SIZE) {   // fast bin
-
-        int idx = (size - MIN_FB_SIZE) >> 3;
-
-        c_ptr->fd = fastbin[idx];
-
-        fastbin[idx] = c_ptr;
-
-        return;
-    }
-
-    // coalescing
     pChunk prev_chunk = PREV_CHUNK(c_ptr);
     pChunk next_chunk = NEXT_CHUNK(c_ptr);
 
     if(!PREV_INUSE(c_ptr)){     // prev chunk not in used
         next_chunk->prev_size = prev_chunk->chunk_size += c_ptr->chunk_size & ~(size_t)0x01;
-        delete(prev_chunk);
-        c_ptr = prev_chunk;
+        c_ptr = delete(prev_chunk);
     }
     if(!PREV_INUSE(NEXT_CHUNK(next_chunk))){     // next chunk not in used
         NEXT_CHUNK(next_chunk)->prev_size = c_ptr->chunk_size += next_chunk->chunk_size - 1;
-        delete(next_chunk);
-        next_chunk = NEXT_CHUNK(next_chunk);
+        next_chunk = NEXT_CHUNK(delete(next_chunk));
     }
 
     next_chunk->prev_size = c_ptr->chunk_size & ~(size_t)0x01;
     next_chunk->chunk_size &= ~(size_t)0x01;        // PREV_INUSE -> 0
 
-    insert(&sortedbin, c_ptr);
+    return c_ptr;
+}
+
+void _myfree(struct _chunk* c_ptr, size_t size){
+
+    if(size <= MAX_FB_SIZE){
+        insert_fastbin(c_ptr, size);
+        return;
+    }
+
+    c_ptr = coalescing(c_ptr);
+
+    insert_sortedbin(&sortedbin, c_ptr, size);
 
     return;
 }
@@ -166,5 +186,6 @@ void _myfree(struct _chunk* c_ptr){
 void myfree(void *ptr)
 {
     pChunk c_ptr = (pChunk)(ptr - 2 * sizeof(size_t));
-    _myfree(c_ptr);
+    size_t size = c_ptr->chunk_size & ~(size_t)0x01;
+    _myfree(c_ptr, size);
 }
