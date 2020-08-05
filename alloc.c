@@ -5,8 +5,6 @@
 extern void debug(const char *fmt, ...);
 extern void *sbrk(intptr_t increment);
 
-unsigned int max_size;
-
 #define NUM_FB          16
 #define MIN_FB_SIZE     0x20
 #define MAX_FB_SIZE     (NUM_FB << 3 + MIN_FB_SIZE - 0x8)
@@ -22,7 +20,7 @@ typedef struct _chunk {
     struct _chunk * fd;
 }* pChunk;
 
-pChunk top_chunk = sbrk(2 * sizeof(size_t));
+pChunk top_chunk;
 
 pChunk fastbin[NUM_FB];   // 0x20, 0x28, ... , 0x58
 pChunk sortedbin;
@@ -64,6 +62,8 @@ void* delete(pChunk c_ptr){
 
 void *myalloc(size_t size)
 { 
+    if(!top_chunk) top_chunk = sbrk(2 * sizeof(size_t));
+
     size_t c_size;
     pChunk target;
 
@@ -99,7 +99,7 @@ void *myalloc(size_t size)
         if(c_size != (target->chunk_size & ~(size_t)0x01)){
             delete(target);
             pChunk splited = (pChunk)((void*)target + c_size);
-            splited->
+            splited->chunk_size = (target->chunk_size ) | (size_t)0x01;
         }
         
         target->chunk_size = c_size || PREV_INUSE(target);
