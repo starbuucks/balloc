@@ -12,6 +12,7 @@ extern void *sbrk(intptr_t increment);
 #define PREV_INUSE(x)   ((x)->chunk_size & 0x01)
 #define NEXT_CHUNK(x)   (pChunk)((void*)(x) + (x->chunk_size & ~(size_t)0x01))
 #define PREV_CHUNK(x)   (pChunk)((void*)(x) - (x->prev_size))
+#define // c_ptr 2 d_ptr
 
 typedef struct _chunk {
     size_t prev_size;       // 
@@ -96,12 +97,8 @@ void *myalloc(size_t size)
 
     // from fastbin
     if(c_size <= MAX_FB_SIZE){
-        int idx = (c_size - MIN_FB_SIZE) >> 3;
-        if(fastbin[idx]){
-            target = fastbin[idx];
-            fastbin[idx] = target->fd;
-            return (void*)target + 2 * sizeof(size_t);
-        }
+        target = pop_fastbin(c_Size);
+        if(target) return (void*)target + 2 * sizeof(size_t);
     }
 
     // from sortedbin
@@ -110,20 +107,24 @@ void *myalloc(size_t size)
     while(ptr && c_size != (ptr->chunk_size & ~(size_t)0x01) && 
         c_size + MIN_FB_SIZE > ptr->chunk_size ) { ptr = ptr->fd; }
 
-    // search from sortedbin failed
-    if(!ptr){
+    if(!ptr){       // ptr == NULL (search from sortedbin failed)
+        // get chunk from top chunk & expand top chunk
         target = top_chunk;
         target->chunk_size = c_size || PREV_INUSE(target);
         top_chunk = (pChunk)(sbrk(c_size) + c_size - 2 * sizeof(size_t));
         top_chunk->chunk_size = 0x01;
     }
-    else{
+    else{           // ptr != NULL (can get chunk from sortedbin)
         target = (pChunk)delte(ptr);
 
         if(c_size != (target->chunk_size & ~(size_t)0x01)){
+            // if split needed
             pChunk splited = (pChunk)((void*)target + c_size);
-            splited->chunk_size = (target->chunk_size - c_size) | (size_t)0x01;
-            _myfree(splited);
+            size_t splited_size = target->chunk_size - c_size;
+            splited->chunk_size = splited_size | (size_t)0x01;
+            // insert splited chunk into bin
+            if(splited_size <= MAX_FB_SIZE)  insert_fastbin(splited, splited_size);
+            else insert_sortedbin(&sortedbin, splited, splited_size);
         }
         
         target->chunk_size = c_size || PREV_INUSE(target);
