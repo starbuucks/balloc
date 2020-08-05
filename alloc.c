@@ -22,7 +22,7 @@ typedef struct _chunk {
     struct _chunk * fd;
 }* pChunk;
 
-pChunk top_chunk;
+pChunk top_chunk = sbrk(2 * sizeof(size_t));
 
 void* fastbin[NUM_FB];   // 0x20, 0x28, ... , 0x58
 void* sortedbin;
@@ -69,7 +69,22 @@ void *myalloc(size_t size)
     // max_size += size;
     // debug("max: %u\n", max_size);
     // return p;   
-    size_t c_size = size + 
+    size_t c_size;
+    pChunk target;
+
+    c_size = (c_size + 0x0f < MIN_FB_SIZE)? MIN_FB_SIZE : (size + 0x0f) & ~(size_t)0x07;
+
+    if(c_size <= MAX_FB_SIZE){
+        int idx = (size - 0x20) >> 3;
+        if(fastbin[idx]){
+            target = fastbin[idx];
+            fastbin[idx] = target->fd;
+            return (void*)target + 2 * sizeof(size_t);
+        }
+    }
+
+    
+
 }
 /
 void *myrealloc(void *ptr, size_t size)
