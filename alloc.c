@@ -21,8 +21,10 @@ typedef struct _chunk {
 void* fastbin[NUM_FB];   // 0x20, 0x28, ... , 0x58
 void* sortedbin;
 
-void insert() {
-
+void insert(pChunk root, pChunk c_ptr) {}
+    c_ptr->fd = sortedbin;
+    if(!sortedbin)  sortedbin->bk = c_ptr;
+    sortedbin = c_ptr;
 }
 
 void *myalloc(size_t size)
@@ -51,7 +53,7 @@ void *myrealloc(void *ptr, size_t size)
 
 }
 
-void _myfree(void *c_ptr){
+void _myfree(struct _chunk* c_ptr){
 
     size_t size = c_ptr->chunk_size;
 
@@ -69,9 +71,8 @@ void _myfree(void *c_ptr){
         return;
     }
 
-    c_ptr->fd = sortedbin;
-    if(!sortedbin)  sortedbin->bk = c_ptr;
-    sortedbin = c_ptr;
+    insert(sortedbin, c_ptr);
+
     return;
 }
 
