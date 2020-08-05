@@ -121,7 +121,7 @@ void *myalloc(size_t size)
     if(!ptr){       // ptr == NULL (search from sortedbin failed)
         // get chunk from top chunk & expand top chunk
         target = top_chunk;
-        target->chunk_size = c_size || PREV_INUSE(target);
+        target->chunk_size = c_size | PREV_INUSE(target);
         top_chunk = (pChunk)(sbrk(c_size) + c_size - 2 * sizeof(size_t));
         top_chunk->chunk_size = 0x01;
     }
@@ -138,7 +138,7 @@ void *myalloc(size_t size)
             else insert_sortedbin(&sortedbin, splited, splited_size);
         }
         
-        target->chunk_size = c_size || PREV_INUSE(target);
+        target->chunk_size = c_size | PREV_INUSE(target);
 
     }
 
