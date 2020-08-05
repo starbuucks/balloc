@@ -18,8 +18,8 @@ unsigned int max_size;
 typedef struct _chunk {
     size_t prev_size;       // 
     size_t chunk_size;      // PREV_INUSE
-    void * bk;
-    void * fd;
+    struct _chunk * bk;
+    struct _chunk * fd;
 }* pChunk;
 
 pChunk top_chunk;
@@ -27,8 +27,31 @@ pChunk top_chunk;
 void* fastbin[NUM_FB];   // 0x20, 0x28, ... , 0x58
 void* sortedbin;
 
-void insert(pChunk root, pChunk c_ptr, size_t size) {
+void insert(pChunk *root, pChunk c_ptr, size_t size) {
 
+    pChunk ptr = *root;
+
+    // insert as the first node
+    if(!ptr || size <= (ptr->chunk_size & ~(size_t)0x01)){
+        c_ptr->fd = ptr;
+
+        if(ptr) ptr->bk = c_ptr;
+        c_ptr->bk = NULL;
+
+        *root = c_ptr;
+
+        return;
+    }
+
+    // insert in the order of chunk_size
+    while(ptr->fd || size > ptr->fd->chunk_size){ ptr = ptr->fd; }
+
+    c_ptr->fd = ptr->fd;
+    c_ptr->bk = ptr;
+    if(ptr->fd) ptr->fd->bk = c_ptr;
+    ptr->fd = c_ptr;
+
+    return;
 }   
 
 void delete(pChunk root, pChunk c_ptr, size_t size){
@@ -94,7 +117,7 @@ void _myfree(struct _chunk* c_ptr){
     next_chunk->prev_size = c_ptr->chunk_size & ~(size_t)0x01;
     next_chunk->chunk_size &= ~(size_t)0x01;        // PREV_INUSE -> 0
 
-    insert(sortedbin, c_ptr);
+    insert(&sortedbin, c_ptr);
 
     return;
 }
