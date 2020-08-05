@@ -12,7 +12,8 @@ extern void *sbrk(intptr_t increment);
 #define PREV_INUSE(x)   ((x)->chunk_size & 0x01)
 #define NEXT_CHUNK(x)   (pChunk)((void*)(x) + (x->chunk_size & ~(size_t)0x01))
 #define PREV_CHUNK(x)   (pChunk)((void*)(x) - (x->prev_size))
-#define // c_ptr 2 d_ptr
+#define PTR_C2D(x)      ((void*)x + 2 * sizeof(size_t))
+#define PTR_D2C(x)      (pChunk)(x - 2 * sizeof(size_t))
 
 typedef struct _chunk {
     size_t prev_size;       // 
@@ -29,6 +30,8 @@ pChunk sortedbin;
 void insert_fastbin(struct _chunk* c_ptr, size_t size){
 
     int idx = (size - MIN_FB_SIZE) >> 3;
+
+    if(fastbin[idx] == c_ptr)   return;     // double free corruption
 
     c_ptr->fd = fastbin[idx];
 
@@ -53,6 +56,9 @@ pChunk pop_fastbin(size_t size){
 void insert_sortedbin(pChunk *root, pChunk c_ptr, size_t size) {
 
     pChunk ptr = *root;
+
+    // if already freed, nothing happens
+    if(!PREV_INUSE(NEXT_CHUNK(c_ptr)))  return;
 
     // insert as the first node
     if(!ptr || size <= (ptr->chunk_size & ~(size_t)0x01)){
@@ -91,14 +97,19 @@ void *myalloc(size_t size)
 
     size_t c_size;
     pChunk target;
+    void* p;
 
-    c_size = (c_size + (2 * sizeof(size_t) - 1) < MIN_FB_SIZE)?
+    c_size = (size + (2 * sizeof(size_t) - 1) < MIN_FB_SIZE)?
     MIN_FB_SIZE : (size + (2 * sizeof(size_t) - 1)) & ~(size_t)0x07;
 
     // from fastbin
     if(c_size <= MAX_FB_SIZE){
         target = pop_fastbin(c_Size);
-        if(target) return (void*)target + 2 * sizeof(size_t);
+        if(target){
+            p = PTR_C2D(target);
+            debug("alloc(%u): %p\n", (unsigned int)size, p);
+            return p;
+        }
     }
 
     // from sortedbin
@@ -131,23 +142,19 @@ void *myalloc(size_t size)
 
     }
 
-    return (void*)target + 2 * sizeof(size_t);
+    p = PTR_C2D(target);
+    debug("alloc(%u): %p\n", (unsigned int)size, p);
+    return p;
 }
 
 void *myrealloc(void *ptr, size_t size)
 {
-    // void *p = NULL;
-    // if (size != 0)
-    // {
-    //     p = sbrk(size);
-    //     if (ptr)
-    //         memcpy(p, ptr, size);
-    //     max_size += size;
-    //     debug("max: %u\n", max_size);
-    // }
-    // debug("realloc(%p, %u): %p\n", ptr, (unsigned int)size, p);
-    // return p;
 
+    size_t original_size = ptr
+
+
+    debug("realloc(%p, %u): %p\n", ptr, (unsigned int)size, p);
+    return p;
 }
 
 pChunk coalescing(struct _chunk* c_ptr){
@@ -186,7 +193,10 @@ void _myfree(struct _chunk* c_ptr, size_t size){
 
 void myfree(void *ptr)
 {
-    pChunk c_ptr = (pChunk)(ptr - 2 * sizeof(size_t));
+    debug("free(%p)\n", ptr);
+
+    pChunk c_ptr = PTR_D2C(ptr);
     size_t size = c_ptr->chunk_size & ~(size_t)0x01;
     _myfree(c_ptr, size);
+    return;
 }
