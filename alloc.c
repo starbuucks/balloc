@@ -153,6 +153,16 @@ void *myrealloc(void *ptr, size_t size)
     pChunk c_ptr = PTR_D2C(ptr);
     size_t original_size = CHUNK_SIZE(c_ptr);
 
+    size_t target_size = (size + (2 * sizeof(size_t) - 1) < MIN_FB_SIZE)?
+    MIN_FB_SIZE : (size + (2 * sizeof(size_t) - 1)) & ~(size_t)0x07;
+
+    if (original_size >= target_size){
+        debug("realloc(%p, %u): %p\n", ptr, (unsigned int)size, ptr);
+        return ptr;
+    }
+
+    myfree(ptr);
+    void* p = myalloc(size);
 
     debug("realloc(%p, %u): %p\n", ptr, (unsigned int)size, p);
     return p;
