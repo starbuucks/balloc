@@ -12,6 +12,7 @@ extern void *sbrk(intptr_t increment);
 #define PREV_INUSE(x)   ((x)->chunk_size & 0x01)
 #define NEXT_CHUNK(x)   (pChunk)((void*)(x) + (x->chunk_size & ~(size_t)0x01))
 #define PREV_CHUNK(x)   (pChunk)((void*)(x) - (x->prev_size))
+#define CHUNK_SIZE(x)   ((x)->chunk_size & ~(size_t)0x01);
 #define PTR_C2D(x)      ((void*)x + 2 * sizeof(size_t))
 #define PTR_D2C(x)      (pChunk)(x - 2 * sizeof(size_t))
 
@@ -61,7 +62,7 @@ void insert_sortedbin(pChunk *root, pChunk c_ptr, size_t size) {
     if(!PREV_INUSE(NEXT_CHUNK(c_ptr)))  return;
 
     // insert as the first node
-    if(!ptr || size <= (ptr->chunk_size & ~(size_t)0x01)){
+    if(!ptr || size <= CHUNK_SIZE(ptr)){
         c_ptr->fd = ptr;
 
         if(ptr) ptr->bk = c_ptr;
@@ -128,10 +129,10 @@ void *myalloc(size_t size)
     else{           // ptr != NULL (can get chunk from sortedbin)
         target = (pChunk)delte(ptr);
 
-        if(c_size != (target->chunk_size & ~(size_t)0x01)){
+        if(c_size != CHUNK_SIZE(target)){
             // if split needed
             pChunk splited = (pChunk)((void*)target + c_size);
-            size_t splited_size = target->chunk_size - c_size;
+            size_t splited_size = CHUNK_SIZE(target) - c_size;
             splited->chunk_size = splited_size | (size_t)0x01;
             // insert splited chunk into bin
             if(splited_size <= MAX_FB_SIZE)  insert_fastbin(splited, splited_size);
@@ -149,8 +150,8 @@ void *myalloc(size_t size)
 
 void *myrealloc(void *ptr, size_t size)
 {
-
-    size_t original_size = ptr
+    pChunk c_ptr = PTR_D2C(ptr);
+    size_t original_size = CHUNK_SIZE(c_ptr);
 
 
     debug("realloc(%p, %u): %p\n", ptr, (unsigned int)size, p);
@@ -163,15 +164,15 @@ pChunk coalescing(struct _chunk* c_ptr){
     pChunk next_chunk = NEXT_CHUNK(c_ptr);
 
     if(!PREV_INUSE(c_ptr)){     // prev chunk not in used
-        next_chunk->prev_size = prev_chunk->chunk_size += c_ptr->chunk_size & ~(size_t)0x01;
+        next_chunk->prev_size = prev_chunk->chunk_size += CHUNK_SIZE(c_ptr);
         c_ptr = delete(prev_chunk);
     }
     if(!PREV_INUSE(NEXT_CHUNK(next_chunk))){     // next chunk not in used
-        NEXT_CHUNK(next_chunk)->prev_size = c_ptr->chunk_size += next_chunk->chunk_size - 1;
+        NEXT_CHUNK(next_chunk)->prev_size = c_ptr->chunk_size += CHUNK_SIZE(next_chunk);
         next_chunk = NEXT_CHUNK(delete(next_chunk));
     }
 
-    next_chunk->prev_size = c_ptr->chunk_size & ~(size_t)0x01;
+    next_chunk->prev_size = CHUNK_SIZE(c_ptr);
     next_chunk->chunk_size &= ~(size_t)0x01;        // PREV_INUSE -> 0
 
     return c_ptr;
@@ -196,7 +197,7 @@ void myfree(void *ptr)
     debug("free(%p)\n", ptr);
 
     pChunk c_ptr = PTR_D2C(ptr);
-    size_t size = c_ptr->chunk_size & ~(size_t)0x01;
+    size_t size = CHUNK_SIZE(c_ptr);
     _myfree(c_ptr, size);
     return;
 }
