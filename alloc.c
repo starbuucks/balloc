@@ -11,7 +11,7 @@ unsigned int max_size;
 #define MIN_FB_SIZE     0x20
 #define MAX_FB_SIZE     (NUM_FB << 3 + MIN_FB_SIZE - 0x8)
 
-#define PREV_INUSE(x)        ((pChunk)(x)->chunk_size & 0x01)
+#define PREV_INUSE(x)   ((x)->chunk_size & 0x01)
 #define NEXT_CHUNK(x)   (pChunk)((void*)(x) + (x->chunk_size & ~(size_t)0x01))
 #define PREV_CHUNK(x)   (pChunk)((void*)(x) - (x->prev_size))
 
@@ -24,8 +24,8 @@ typedef struct _chunk {
 
 pChunk top_chunk = sbrk(2 * sizeof(size_t));
 
-void* fastbin[NUM_FB];   // 0x20, 0x28, ... , 0x58
-void* sortedbin;
+pChunk fastbin[NUM_FB];   // 0x20, 0x28, ... , 0x58
+pChunk sortedbin;
 
 void insert(pChunk *root, pChunk c_ptr, size_t size) {
 
@@ -54,28 +54,25 @@ void insert(pChunk *root, pChunk c_ptr, size_t size) {
     return;
 }   
 
-void delete(pChunk c_ptr){
+void* delete(pChunk c_ptr){
 
     if(c_ptr->bk)   c_ptr->bk->fd = c_ptr->fd;
     if(c_ptr->fd)   c_ptr->fd->bk = c_ptr->bk;
 
-    return;
+    return (void*)c_ptr;
 }
 
 void *myalloc(size_t size)
-{
-    // void *p = sbrk(size);
-    // debug("alloc(%u): %p\n", (unsigned int)size, p);
-    // max_size += size;
-    // debug("max: %u\n", max_size);
-    // return p;   
+{ 
     size_t c_size;
     pChunk target;
 
-    c_size = (c_size + 0x0f < MIN_FB_SIZE)? MIN_FB_SIZE : (size + 0x0f) & ~(size_t)0x07;
+    c_size = (c_size + (2 * sizeof(size_t) - 1) < MIN_FB_SIZE)?
+    MIN_FB_SIZE : (size + (2 * sizeof(size_t) - 1)) & ~(size_t)0x07;
 
+    // from fastbin
     if(c_size <= MAX_FB_SIZE){
-        int idx = (size - 0x20) >> 3;
+        int idx = (c_size - MIN_FB_SIZE) >> 3;
         if(fastbin[idx]){
             target = fastbin[idx];
             fastbin[idx] = target->fd;
@@ -83,10 +80,35 @@ void *myalloc(size_t size)
         }
     }
 
-    
+    // from sortedbin
+    pChunk ptr = *sortedbin;
 
+    while(ptr && c_size != (ptr->chunk_size & ~(size_t)0x01) && 
+        c_size + MIN_FB_SIZE > ptr->chunk_size ) { ptr = ptr->fd; }
+
+    // search from sortedbin failed
+    if(!ptr){
+        target = top_chunk;
+        target->chunk_size = c_size || PREV_INUSE(target);
+        top_chunk = (pChunk)(sbrk(c_size) + c_size - 2 * sizeof(size_t));
+        top_chunk->chunk_size = 0x01;
+    }
+    else{
+        target = (pChunk)delte(ptr);
+
+        if(c_size != (target->chunk_size & ~(size_t)0x01)){
+            delete(target);
+            pChunk splited = (pChunk)((void*)target + c_size);
+            splited->
+        }
+        
+        target->chunk_size = c_size || PREV_INUSE(target);
+
+    }
+
+    return (void*)target + 2 * sizeof(size_t);
 }
-/
+
 void *myrealloc(void *ptr, size_t size)
 {
     // void *p = NULL;
@@ -109,7 +131,7 @@ void _myfree(struct _chunk* c_ptr){
 
     if(size <= MAX_FB_SIZE) {   // fast bin
 
-        int idx = (size - 0x20) >> 3;
+        int idx = (size - MIN_FB_SIZE) >> 3;
 
         c_ptr->fd = fastbin[idx];
 
