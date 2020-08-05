@@ -11,8 +11,8 @@ unsigned int max_size;
 #define MIN_FB_SIZE     0x20
 #define MAX_FB_SIZE     (NUM_FB << 3 + MIN_FB_SIZE - 0x8)
 
-#define PREV_INUSE(x)   ((pChunk)(x)->chunk_size & 0x01)
-#define NEXT_CHUNK(x)   (pChunk)((void*)(x) + (x->chunk_size & ~(size_t)0x07))
+#define PREV_INUSE(x)        ((pChunk)(x)->chunk_size & 0x01)
+#define NEXT_CHUNK(x)   (pChunk)((void*)(x) + (x->chunk_size & ~(size_t)0x01))
 #define PREV_CHUNK(x)   (pChunk)((void*)(x) - (x->prev_size))
 
 typedef struct _chunk {
@@ -22,12 +22,14 @@ typedef struct _chunk {
     void * fd;
 }* pChunk;
 
+pChunk top_chunk;
+
 void* fastbin[NUM_FB];   // 0x20, 0x28, ... , 0x58
 void* sortedbin;
 
 void insert(pChunk root, pChunk c_ptr, size_t size) {
 
-}
+}   
 
 void delete(pChunk root, pChunk c_ptr, size_t size){
 
@@ -42,7 +44,7 @@ void *myalloc(size_t size)
     // return p;   
     size_t c_size = size + 
 }
-
+/
 void *myrealloc(void *ptr, size_t size)
 {
     // void *p = NULL;
@@ -75,10 +77,22 @@ void _myfree(struct _chunk* c_ptr){
     }
 
     // coalescing
-    if(!PREV_INUSE(c_ptr)){
-        size_t new_size = c_ptr->chunk_size + c_ptr->prev_size;
-        c_ptr = 
+    pChunk prev_chunk = PREV_CHUNK(c_ptr);
+    pChunk next_chunk = NEXT_CHUNK(c_ptr);
+
+    if(!PREV_INUSE(c_ptr)){     // prev chunk not in used
+        next_chunk->prev_size = prev_chunk->chunk_size += c_ptr->chunk_size & ~(size_t)0x01;
+        delete(sortedbin, prev_chunk);
+        c_ptr = prev_chunk;
     }
+    if(!PREV_INUSE(NEXT_CHUNK(next_chunk))){     // next chunk not in used
+        NEXT_CHUNK(next_chunk)->prev_size = c_ptr->chunk_size += next_chunk->chunk_size - 1;
+        delete(sortedbin, next_chunk);
+        next_chunk = NEXT_CHUNK(next_chunk);
+    }
+
+    next_chunk->prev_size = c_ptr->chunk_size & ~(size_t)0x01;
+    next_chunk->chunk_size &= ~(size_t)0x01;        // PREV_INUSE -> 0
 
     insert(sortedbin, c_ptr);
 
