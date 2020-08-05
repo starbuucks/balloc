@@ -54,8 +54,12 @@ void insert(pChunk *root, pChunk c_ptr, size_t size) {
     return;
 }   
 
-void delete(pChunk root, pChunk c_ptr, size_t size){
+void delete(pChunk c_ptr){
 
+    if(c_ptr->bk)   c_ptr->bk->fd = c_ptr->fd;
+    if(c_ptr->fd)   c_ptr->fd->bk = c_ptr->bk;
+
+    return;
 }
 
 void *myalloc(size_t size)
@@ -105,12 +109,12 @@ void _myfree(struct _chunk* c_ptr){
 
     if(!PREV_INUSE(c_ptr)){     // prev chunk not in used
         next_chunk->prev_size = prev_chunk->chunk_size += c_ptr->chunk_size & ~(size_t)0x01;
-        delete(sortedbin, prev_chunk);
+        delete(prev_chunk);
         c_ptr = prev_chunk;
     }
     if(!PREV_INUSE(NEXT_CHUNK(next_chunk))){     // next chunk not in used
         NEXT_CHUNK(next_chunk)->prev_size = c_ptr->chunk_size += next_chunk->chunk_size - 1;
-        delete(sortedbin, next_chunk);
+        delete(next_chunk);
         next_chunk = NEXT_CHUNK(next_chunk);
     }
 
