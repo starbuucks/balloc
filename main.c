@@ -28,7 +28,7 @@ int main()
         if (rem == 0)
         {
             int rv = read(0, replaybuf, sizeof(replaybuf));
-            if (rv <= )
+            if (rv <= 0)
                 break;
             rem = rv / sizeof(unsigned int);
             idx = 0;
