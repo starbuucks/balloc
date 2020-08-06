@@ -34,6 +34,11 @@ pChunk top_chunk;
 pChunk fastbin[NUM_FB];   // 0x20, 0x28, ... , 0x58
 pChunk sortedbin;
 
+void debug_chunk(char* str, pChunk c_ptr){
+    debug("%s: %p", str, c_ptr);
+    if(c_ptr) debug(" : %llx %llx %p %p\n", c_ptr->prev_size, c_ptr->chunk_size, c_ptr->bk, c_ptr->fd);
+}
+
 void debug_fastbin(int idx){
     int i;
     if(idx == -1){
@@ -78,7 +83,7 @@ void insert_fastbin(struct _chunk* c_ptr, size_t size){
 
     if(fastbin[idx] == c_ptr)   return;     // double free corruption
 
-    NEXT_CHUNK(c_ptr)->chunk_size |= 0x2;   // PREV_INUSE -> 1
+    NEXT_CHUNK(c_ptr)->chunk_size |= 0x1;   // PREV_INUSE -> 1
 
     c_ptr->fd = fastbin[idx];
 
@@ -108,7 +113,9 @@ void insert_sortedbin(pChunk *root, pChunk c_ptr, size_t size) {
 
     pChunk ptr = *root;
 
+    debug("root: %p\n", root);
     debug("insert_sortedbin, ptr: %p\n", ptr);
+    //debug_chunk(ptr);
     // insert as the first node
     if(!ptr || size <= CHUNK_SIZE(ptr)){
         debug("here\n");
@@ -123,21 +130,15 @@ void insert_sortedbin(pChunk *root, pChunk c_ptr, size_t size) {
     }
 
     // insert in the order of chunk_size
+    debug_bin("sortedbin21", &sortedbin);
     while(ptr->fd && size > ptr->fd->chunk_size){ ptr = ptr->fd; }
 
-    if(! ptr->fd){
-        ptr->fd = c_ptr;
-        c_ptr->bk = ptr;
-        c_ptr = NULL;
-    }/////////////////////problem///////////////////////
-    else{
-        c_ptr->fd = ptr->fd;
-        c_ptr->bk = ptr;
-        if(ptr->fd) ptr->fd->bk = c_ptr;
-        ptr->fd = c_ptr;
-    }
+    pChunk next = ptr->fd;
+    ptr->fd = c_ptr;
+    c_ptr->bk = ptr;
+    if(next)    next->bk = c_ptr;
+    c_ptr->fd = next;
 
-    debug_bin("sortedbin2", &sortedbin);
     return;
 }   
 
@@ -162,6 +163,7 @@ pChunk delete(pChunk* root, pChunk c_ptr){
 
 void *myalloc(size_t size)
 { 
+    debug_chunk("start of alloc", sortedbin);
     debug("\nalloc(%x)\n", size);
     //debug("alloc(%u) started\n", (unsigned int)size);
     if(!top_chunk){
@@ -309,6 +311,7 @@ void myfree(void *ptr)
 
     pChunk c_ptr = PTR_D2C(ptr);
     size_t size = CHUNK_SIZE(c_ptr);
+    debug("size, %llx\n", size);
     _myfree(c_ptr, size);
 
     return;
