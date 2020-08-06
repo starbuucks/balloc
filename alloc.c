@@ -8,7 +8,7 @@ extern void *sbrk(intptr_t increment);
 #define SORTED
 #define FASTBIN_LIMIT   300
 
-#define NUM_FB          16
+#define NUM_FB          8
 #define MIN_FB_SIZE     0x20
 #define MAX_FB_SIZE     ((NUM_FB << 3) + MIN_FB_SIZE - 0x8)
 
@@ -121,7 +121,7 @@ void insert_fastbin(struct _chunk* c_ptr, size_t size){
 
     fastbin[idx] = c_ptr;
 
-    debug_fastbin(idx);
+    //debug_fastbin(idx);
 
     return;
 }
@@ -140,7 +140,7 @@ pChunk pop_fastbin(size_t size){
 
         target = fastbin[idx];
         fastbin[idx] = target->fd;
-        debug_fastbin(idx);
+        //debug_fastbin(idx);
         return target;
     }
     else{
@@ -152,27 +152,27 @@ void insert_sortedbin(pChunk *root, pChunk c_ptr, size_t size) {
 
     pChunk ptr = *root;
 
-    debug("root: %p\n", root);
-    debug("insert_sortedbin, ptr: %p\n", ptr);
-    //debug_chunk(ptr);
+    // debug("inserted_sortedbin(%p, %p, %llx)\n", *root, c_ptr, size);
+    // debug("insert_sortedbin, ptr: %p\n", ptr);
+    // debug_chunk("ptr: ", ptr);
     // insert as the first node
 
 #ifdef SORTED
 
+    // debug("top_chunk: %p\n", top_chunk);
     if(!ptr || size <= CHUNK_SIZE(ptr)){
-        debug("here\n");
         c_ptr->fd = ptr;
 
         if(ptr) ptr->bk = c_ptr;
         c_ptr->bk = NULL;
 
         *root = c_ptr;
-        debug_bin("sortedbin1", &sortedbin);
+        //debug_bin("sortedbin1", &sortedbin);
         return;
     }
 
     // insert in the order of chunk_size
-    debug_bin("sortedbin21", &sortedbin);
+    //debug_bin("sortedbin21", &sortedbin);
     while(ptr->fd && size > ptr->fd->chunk_size){ ptr = ptr->fd; }
 
     pChunk next = ptr->fd;
@@ -195,17 +195,17 @@ void insert_sortedbin(pChunk *root, pChunk c_ptr, size_t size) {
 
 pChunk delete(pChunk* root, pChunk c_ptr){
 
-    debug("delete(%p)\n", c_ptr);
+    // debug("delete(%p)\n", c_ptr);
     if(c_ptr->bk) {
-        debug("c_ptr->bk: %p\n",c_ptr->bk);
+        // debug("c_ptr->bk: %p\n",c_ptr->bk);
         c_ptr->bk->fd = c_ptr->fd;
     }
     else{
-        debug("root: %p %p\n", root, *root);
+        // debug("root: %p %p\n", root, *root);
         *root = c_ptr->fd;
     }
-    debug_bin("sortedbin", &sortedbin);
-    debug("c_ptr: %p %p %p\n", c_ptr, c_ptr->bk, c_ptr->fd);
+    //debug_bin("sortedbin", &sortedbin);
+    // debug("c_ptr: %p %p %p\n", c_ptr, c_ptr->bk, c_ptr->fd);
     if(c_ptr->fd)   c_ptr->fd->bk = c_ptr->bk;
 
     NEXT_CHUNK(c_ptr)->chunk_size |= 0x1;
@@ -214,8 +214,8 @@ pChunk delete(pChunk* root, pChunk c_ptr){
 
 void *myalloc(size_t size)
 { 
-    debug_chunk("start of alloc", sortedbin);
-    debug("\nalloc(%x)\n", size);
+    //debug_chunk("start of alloc", sortedbin);
+    // debug("\nalloc(%x)\n", size);
     //debug("alloc(%u) started\n", (unsigned int)size);
     if(!top_chunk){
         top_chunk = (pChunk)sbrk(2 * sizeof(size_t));
@@ -231,7 +231,7 @@ void *myalloc(size_t size)
 
     c_size = (size + (2 * sizeof(size_t) - 1) < MIN_FB_SIZE)?
     MIN_FB_SIZE : (size + (2 * sizeof(size_t) - 1)) & ~(size_t)0x07;
-    debug("c_size: %llx\n", c_size);
+    //debug("c_size: %llx\n", c_size);
 
     // from fastbin
     if(c_size <= MAX_FB_SIZE){
@@ -251,12 +251,20 @@ void *myalloc(size_t size)
         c_size + MIN_FB_SIZE > ptr->chunk_size ) { ptr = ptr->fd; }
 
     if(!ptr){       // ptr == NULL (search from sortedbin failed)
-        // get chunk from top chunk & expand top chunk
+        // get chunk from top chunk
         debug("get from topchunk\n");
+        size_t needed = c_size + 2 * sizeof(size_t);
+
+        if(CHUNK_SIZE(top_chunk) < needed){
+            //expand top chunk
+            size_t expand = needed - CHUNK_SIZE(top_chunk);
+            sbrk(expand);
+            top_chunk->chunk_size += expand;
+        }
         target = top_chunk;
+        top_chunk = (pChunk)((void*)target + c_size);
+        top_chunk->chunk_size = (target->chunk_size - c_size) | 0x01;
         target->chunk_size = c_size | PREV_INUSE(target);
-        top_chunk = (pChunk)(sbrk(c_size) + c_size - 2 * sizeof(size_t));
-        top_chunk->chunk_size = 0x01;
     }
     else{           // ptr != NULL (can get chunk from sortedbin)
         target = (pChunk)delete(&sortedbin, ptr);
@@ -264,12 +272,12 @@ void *myalloc(size_t size)
         if(c_size != CHUNK_SIZE(target)){
             // if split needed
             pChunk splited = (pChunk)((void*)target + c_size);
-            debug("target: %p, c_size: %llx\n", target, c_size);
+            //debug("target: %p, c_size: %llx\n", target, c_size);
             size_t splited_size = CHUNK_SIZE(target) - c_size;
             splited->chunk_size = splited_size | (size_t)0x01;
  
             // insert splited chunk into bin
-            debug("_myfree(%p, %llx)\n", splited, splited_size);
+            //debug("_myfree(%p, %llx)\n", splited, splited_size);
             _myfree(splited, splited_size);
             //if(splited_size <= MAX_FB_SIZE)  insert_fastbin(splited, splited_size);
             //else insert_sortedbin(&sortedbin, splited, splited_size);
@@ -287,7 +295,7 @@ void *myalloc(size_t size)
 
 void *myrealloc(void *ptr, size_t size)
 {
-    debug("\nrealloc(%p, %x)", ptr, size);
+    // debug("\nrealloc(%p, %x)", ptr, size);
     if(!ptr)    return myalloc(size);
 
     pChunk c_ptr = PTR_D2C(ptr);
@@ -314,15 +322,22 @@ pChunk coalescing(struct _chunk* c_ptr){
     pChunk next_chunk = NEXT_CHUNK(c_ptr);
 
     if(!PREV_INUSE(c_ptr)){     // prev chunk not in used
-        debug("coal1\n");
+        // debug("coal1\n");
         prev_chunk = PREV_CHUNK(c_ptr);
-        next_chunk->prev_size = prev_chunk->chunk_size += CHUNK_SIZE(c_ptr);
-        debug("prev_chunk: %p\n", prev_chunk);
+        prev_chunk->chunk_size += CHUNK_SIZE(c_ptr);
+        // debug("prev_chunk: %p\n", prev_chunk);
         c_ptr = delete(&sortedbin, prev_chunk);
     }
-    if(next_chunk != top_chunk && !PREV_INUSE(next_chunk)){     // next chunk not in used
-        debug("coal2\n");
-        NEXT_CHUNK(next_chunk)->prev_size = c_ptr->chunk_size += CHUNK_SIZE(next_chunk);
+    if(next_chunk == top_chunk){
+        //coalesce with top chunk, no bin insert
+        c_ptr->chunk_size += CHUNK_SIZE(top_chunk);
+        top_chunk = c_ptr;
+
+        return c_ptr;
+    }
+    else if(!PREV_INUSE(next_chunk)){     // next chunk not in used
+        // debug("coal2\n");
+        c_ptr->chunk_size += CHUNK_SIZE(next_chunk);
         next_chunk = NEXT_CHUNK(delete(&sortedbin, next_chunk));
     }
 
@@ -348,7 +363,7 @@ void _myfree(struct _chunk* c_ptr, size_t size){
 
     c_ptr = (pChunk)coalescing(c_ptr);
 
-    insert_sortedbin(&sortedbin, c_ptr, size);
+    if(c_ptr != top_chunk) insert_sortedbin(&sortedbin, c_ptr, size);
 
     //debug_bin("sortedbin", &sortedbin);
 
@@ -363,7 +378,7 @@ void myfree(void *ptr)
 
     pChunk c_ptr = PTR_D2C(ptr);
     size_t size = CHUNK_SIZE(c_ptr);
-    debug("size, %llx\n", size);
+    if(((size_t)ptr & 0x0fff) == 0xc68) debug("size, %llx\n", size);
     _myfree(c_ptr, size);
 
     return;
