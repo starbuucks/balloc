@@ -7,7 +7,7 @@
 #include "printf.h"
 
 /* Comment out to disable debug prints (e.g. for performance testing) */
-#define DEBUG 1
+#define DEBUG 0
 
 unsigned int replaybuf[1024];
 void * allocations[8192 * 8];
