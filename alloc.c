@@ -8,7 +8,7 @@ extern void *sbrk(intptr_t increment);
 #define SORTED
 #define FASTBIN_LIMIT   300
 
-#define NUM_FB          8
+#define NUM_FB          16
 #define MIN_FB_SIZE     0x20
 #define MAX_FB_SIZE     ((NUM_FB << 3) + MIN_FB_SIZE - 0x8)
 
@@ -33,6 +33,7 @@ void *myrealloc(void *ptr, size_t size);
 void myfree(void *ptr);
 pChunk delete(pChunk* root, pChunk c_ptr);
 pChunk coalescing(struct _chunk* c_ptr);
+void __myfree(struct _chunk* c_ptr, size_t size);
 void _myfree(struct _chunk* c_ptr, size_t size);
 
 pChunk top_chunk;
@@ -48,7 +49,12 @@ int fastbin_count[NUM_FB];
 
 void debug_chunk(char* str, pChunk c_ptr){
     debug("%s: %p", str, c_ptr);
-    if(c_ptr) debug(" : %llx %llx %p %p\n", c_ptr->prev_size, c_ptr->chunk_size, c_ptr->bk, c_ptr->fd);
+    if(c_ptr == top_chunk){
+        debug(" : %llx %llx\n", c_ptr->prev_size, c_ptr->chunk_size);
+        debug("sbrk(0): %p\n", sbrk(0));
+    }
+    else if(c_ptr) debug(" : %llx %llx %p %p\n", c_ptr->prev_size, c_ptr->chunk_size, c_ptr->bk, c_ptr->fd);
+
 }
 
 void debug_fastbin(int idx){
@@ -78,6 +84,7 @@ void debug_fastbin(int idx){
 }
 
 void debug_bin(char* str, pChunk* root){
+    return;
     debug("==== %s debug ====\n", str);
     debug("head[%p]\n", root);
     pChunk c_ptr = *root;
@@ -98,15 +105,8 @@ void insert_fastbin(struct _chunk* c_ptr, size_t size){
 #ifdef FASTBIN_LIMIT
 
     if(fastbin_count[idx] >= FASTBIN_LIMIT){
-        // if already freed, nothing happens
-        if(!PREV_INUSE(NEXT_CHUNK(c_ptr))){
-            debug("already freed\n");
-            return;
-        }
 
-        c_ptr = (pChunk)coalescing(c_ptr);
-
-        insert_sortedbin(&sortedbin, c_ptr, size);
+        __myfree(c_ptr, size);
 
         return;
     }
@@ -215,12 +215,12 @@ pChunk delete(pChunk* root, pChunk c_ptr){
 void *myalloc(size_t size)
 { 
     //debug_chunk("start of alloc", sortedbin);
-    // debug("\nalloc(%x)\n", size);
+    debug("\nalloc(%x)\n", size);
     //debug("alloc(%u) started\n", (unsigned int)size);
     if(!top_chunk){
         top_chunk = (pChunk)sbrk(2 * sizeof(size_t));
-        top_chunk->chunk_size |= 0x1;
-        debug("first top_chunk: %p\n", top_chunk);
+        top_chunk->chunk_size = (2 * sizeof(size_t)) | 0x1;
+        debug_chunk("first top_chunk", top_chunk);
     }
 
     if(!size)   return NULL;
@@ -244,6 +244,8 @@ void *myalloc(size_t size)
         }
     }
 
+    if(size == 0x400) debug_bin("sortedbin", &sortedbin);
+
     // from sortedbin
     pChunk ptr = sortedbin;
 
@@ -253,6 +255,7 @@ void *myalloc(size_t size)
     if(!ptr){       // ptr == NULL (search from sortedbin failed)
         // get chunk from top chunk
         debug("get from topchunk\n");
+        debug_chunk("top chunk before expand", top_chunk);
         size_t needed = c_size + 2 * sizeof(size_t);
 
         if(CHUNK_SIZE(top_chunk) < needed){
@@ -265,6 +268,8 @@ void *myalloc(size_t size)
         top_chunk = (pChunk)((void*)target + c_size);
         top_chunk->chunk_size = (target->chunk_size - c_size) | 0x01;
         target->chunk_size = c_size | PREV_INUSE(target);
+        debug_chunk("target", target);
+        debug_chunk("top chunk after expand", top_chunk);
     }
     else{           // ptr != NULL (can get chunk from sortedbin)
         target = (pChunk)delete(&sortedbin, ptr);
@@ -332,6 +337,8 @@ pChunk coalescing(struct _chunk* c_ptr){
         //coalesce with top chunk, no bin insert
         c_ptr->chunk_size += CHUNK_SIZE(top_chunk);
         top_chunk = c_ptr;
+        debug_chunk("coalesce", top_chunk);
+        //debug_bin("sortedbin", &sortedbin);
 
         return c_ptr;
     }
@@ -347,6 +354,24 @@ pChunk coalescing(struct _chunk* c_ptr){
     return c_ptr;
 }
 
+void __myfree(struct _chunk* c_ptr, size_t size){
+    // coalesce and insert to sortedbin
+
+    // if already freed, nothing happens
+    if(!PREV_INUSE(NEXT_CHUNK(c_ptr))){
+        debug("already freed\n");
+        return;
+    }
+
+    c_ptr = coalescing(c_ptr);
+
+    if(c_ptr != top_chunk) insert_sortedbin(&sortedbin, c_ptr, size);
+
+    //debug_bin("sortedbin", &sortedbin);
+
+    return;
+}
+
 void _myfree(struct _chunk* c_ptr, size_t size){
 
     if(size <= MAX_FB_SIZE){
@@ -355,17 +380,7 @@ void _myfree(struct _chunk* c_ptr, size_t size){
         return;
     }
 
-    // if already freed, nothing happens
-    if(!PREV_INUSE(NEXT_CHUNK(c_ptr))){
-        debug("already freed\n");
-        return;
-    }
-
-    c_ptr = (pChunk)coalescing(c_ptr);
-
-    if(c_ptr != top_chunk) insert_sortedbin(&sortedbin, c_ptr, size);
-
-    //debug_bin("sortedbin", &sortedbin);
+    __myfree(c_ptr, size);
 
     return;
 }
@@ -378,7 +393,10 @@ void myfree(void *ptr)
 
     pChunk c_ptr = PTR_D2C(ptr);
     size_t size = CHUNK_SIZE(c_ptr);
-    if(((size_t)ptr & 0x0fff) == 0xc68) debug("size, %llx\n", size);
+    if(((size_t)ptr & 0x0fff) == 0xc68){
+        debug_chunk("top_chunk ", top_chunk);
+        debug("size, %llx\n", size);
+    }
     _myfree(c_ptr, size);
 
     return;
