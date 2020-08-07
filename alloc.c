@@ -9,7 +9,8 @@ extern void *sbrk(intptr_t increment);
 
 #define SORTED
 #define FASTBIN_LIMIT   300
-#define SEGREGATED_BIN
+// #define SEGREGATED_BIN
+// #define TOPCHUNK_EXPAND 0x10000
 
 #define NUM_FB          16
 #define MIN_FB_SIZE     0x20
@@ -42,6 +43,7 @@ pChunk pop_segregatedbin(size_t size);
 pChunk pop_from_bin(pChunk* root, size_t size);
 pChunk delete(pChunk* root, pChunk c_ptr);
 pChunk coalescing(pChunk* root, struct _chunk* c_ptr);
+void expand_top_chunk(size_t expand);
 pChunk _myalloc(pChunk ptr, pChunk* root, size_t c_size);
 void *myalloc(size_t size);
 void *myrealloc(void *ptr, size_t size);
@@ -292,14 +294,29 @@ pChunk _myalloc(pChunk ptr, pChunk* root, size_t c_size){
     return target;
 }
 
+#ifdef TOPCHUNK_EXPAND
+void expand_top_chunk(size_t expand){
+    expand = (expand > TOPCHUNK_EXPAND)? expand : TOPCHUNK_EXPAND;
+    sbrk(expand);
+    top_chunk->chunk_size += expand;
+    return;
+}
+#endif
+
 void *myalloc(size_t size)
 { 
     //debug_chunk("start of alloc", sortedbin);
     debug("\nalloc(%x)\n", size);
     //debug("alloc(%u) started\n", (unsigned int)size);
     if(!top_chunk){
+    #ifdef TOPCHUNK_EXPAND
+        top_chunk = (pChunk)sbrk(0);
+        expand_top_chunk(2 * sizeof(size_t));
+    #else
         top_chunk = (pChunk)sbrk(2 * sizeof(size_t));
-        top_chunk->chunk_size = (2 * sizeof(size_t)) | 0x1;
+        top_chunk->chunk_size = (2 * sizeof(size_t));
+    #endif
+        top_chunk->chunk_size |= 0x1;
         debug_chunk("first top_chunk", top_chunk);
     }
 
@@ -350,8 +367,12 @@ void *myalloc(size_t size)
         if(CHUNK_SIZE(top_chunk) < needed){
             //expand top chunk
             size_t expand = needed - CHUNK_SIZE(top_chunk);
+        #ifdef TOPCHUNK_EXPAND
+            expand_top_chunk(expand);
+        #else
             sbrk(expand);
             top_chunk->chunk_size += expand;
+        #endif
         }
         target = top_chunk;
         top_chunk = (pChunk)((void*)target + c_size);
