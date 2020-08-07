@@ -8,17 +8,23 @@ extern void *sbrk(intptr_t increment);
 #define DEBUG_BIN       0
 
 #define SORTED
-#define FASTBIN_LIMIT   300
-// #define SEGREGATED_BIN
-// #define TOPCHUNK_EXPAND 0x10000
+#define FASTBIN_LIMIT   30
+#define SEGREGATED_BIN
+#define TOPCHUNK_EXPAND 0x10000
+#define SEG_IDX_POWER   0
 
 #define NUM_FB          16
 #define MIN_FB_SIZE     0x20
 #define MAX_FB_SIZE     ((NUM_FB << 3) + MIN_FB_SIZE - 0x8)
 
-#define NUM_SB          12
+#define NUM_SB          16
+#if SEG_IDX_POWER == 1
 #define STEP_SB         1
 #define MAX_SB_SIZE     ((0x01 << (NUM_SB * STEP_SB)) - 1)
+#else
+#define SB_ROOM         0x1000
+#define MAX_SB_SIZE     (SB_ROOM * NUM_SB - 1)
+#endif
 
 #define PREV_INUSE(x)   ((x)->chunk_size & 0x01)
 #define NEXT_CHUNK(x)   ((pChunk)((void*)(x) + (x->chunk_size & ~(size_t)0x01)))
@@ -172,11 +178,26 @@ pChunk pop_fastbin(size_t size){
 
 #ifdef SEGREGATED_BIN
 
+int get_seg_idx(size_t size){
+    int idx = 0;
+    
+    #if SEG_IDX_POWER == 1
+    whlie(size >> idx)  idx++;
+    idx--;
+    
+    #else
+    idx = (int)size / SB_ROOM;
+
+    #endif
+
+    return idx;
+}
+
 void insert_segregatedbin(pChunk c_ptr, size_t size){
 
     int idx = 0;
     
-    while(size >> idx) idx++;
+    idx = get_seg_idx(size);
 
     insert_sortedbin(&segregatedbin[idx], c_ptr, size);
 
@@ -186,8 +207,7 @@ void insert_segregatedbin(pChunk c_ptr, size_t size){
 pChunk pop_segregatedbin(size_t size){
 
     int idx = 0;
-    while(size >> idx) idx++;
-    idx--;
+    idx = get_seg_idx(size);
 
     debug_bin("seg", &(segregatedbin[idx]));
     pChunk ptr = pop_from_bin(&(segregatedbin[idx]), size);
@@ -460,9 +480,9 @@ void __myfree(struct _chunk* c_ptr, size_t size){
 
 #ifdef SEGREGATED_BIN
     if(size <= MAX_SB_SIZE){
-        int idx = 0;
-        while(size >> idx) idx++;
-        root = &segregatedbin[--idx];
+        int idx;
+        idx = get_seg_idx(size);
+        root = &segregatedbin[idx];
     }
 #endif
 
@@ -472,8 +492,8 @@ void __myfree(struct _chunk* c_ptr, size_t size){
 #ifdef SEGREGATED_BIN
     if(size <= MAX_SB_SIZE){
         int idx = 0;
-        while(size >> idx) idx++;
-        root = &segregatedbin[--idx];
+        idx = get_seg_idx(size);
+        root = &segregatedbin[idx];
     }
     else root = &sortedbin;
 #endif
